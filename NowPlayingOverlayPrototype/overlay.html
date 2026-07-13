@@ -1,0 +1,63 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body { margin: 0; background: transparent; font-family: Arial, sans-serif; }
+        #card {
+            position: fixed; bottom: 20px; left: 20px;
+            background: rgba(20,20,20,0.85); border-radius: 12px;
+            padding: 16px; display: flex; align-items: center; gap: 14px;
+            width: 360px; opacity: 0; transition: opacity 0.5s ease;
+        }
+        #card.visible { opacity: 1; }
+        #thumb { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #333; flex-shrink: 0; }
+        #title { color: #fff; font-size: 15px; font-weight: bold; margin: 0 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #artist { color: #ccc; font-size: 12px; margin: 0 0 10px; }
+        #barRow { display: flex; align-items: center; gap: 8px; }
+        #elapsed, #remaining { color: #fff; font-size: 11px; font-weight: bold; min-width: 30px; }
+        #barTrack { flex: 1; height: 3px; background: rgba(255,255,255,0.25); border-radius: 2px; overflow: hidden; }
+        #barFill { width: 0%; height: 100%; background: #fff; }
+    </style>
+</head>
+<body>
+<div id="card">
+    <img id="thumb" src="/thumbnail.jpg"  alt=""/>
+    <div style="flex:1; min-width:0;">
+        <p id="title"></p>
+        <p id="artist"></p>
+        <div id="barRow">
+            <span id="elapsed">0:00</span>
+            <div id="barTrack"><div id="barFill"></div></div>
+            <span id="remaining">-0:00</span>
+        </div>
+    </div>
+</div>
+<script>
+    function fmt(sec) {
+        sec = Math.max(0, Math.floor(sec));
+        const m = Math.floor(sec / 60), s = sec % 60;
+        return m + ":" + String(s).padStart(2, "0");
+    }
+    async function poll() {
+        try {
+            const res = await fetch('/nowplaying.json');
+            const data = await res.json();
+            const card = document.getElementById('card');
+            if (data.title) {
+                document.getElementById('title').textContent = data.title;
+                document.getElementById('artist').textContent = data.artist || "";
+                document.getElementById('elapsed').textContent = fmt(data.position);
+                document.getElementById('remaining').textContent = "-" + fmt(data.duration - data.position);
+                document.getElementById('barFill').style.width = (data.duration > 0 ? (data.position / data.duration * 100) : 0) + "%";
+                document.getElementById('thumb').src = '/thumbnail.jpg?t=' + Date.now();
+                card.classList.add('visible');
+            } else {
+                card.classList.remove('visible');
+            }
+        } catch (e) {}
+        setTimeout(poll, 1000);
+    }
+    poll();
+</script>
+</body>
+</html>

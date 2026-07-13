@@ -13,8 +13,7 @@ var playingData = new Dictionary<String, object>()
     { "title", "" },
     { "artist", "" },
     { "position", ""},
-    { "startTime", ""},
-    { "endTime", ""},
+    { "duration", ""},
 };
 
 var listener = new HttpListener();
@@ -38,6 +37,24 @@ _ = Task.Run(async () =>
             response.ContentLength64 = buffer.Length;
             await response.OutputStream.WriteAsync(buffer);
         }
+        else if (request.Url.AbsolutePath == "/overlay")
+        {
+            try
+            {
+                var htmlPath = Path.Combine(AppContext.BaseDirectory, "overlay.html");
+                var html = File.ReadAllText(htmlPath);
+                var buffer = Encoding.UTF8.GetBytes(html);
+                response.ContentType = "text/html";
+                response.ContentLength64 = buffer.Length;
+                await response.OutputStream.WriteAsync(buffer);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Overlay error: {ex.Message}");
+                response.StatusCode = 500;
+            }
+
+        }
         
         response.Close();
     }
@@ -48,7 +65,20 @@ string lastTitle = "";
 while (true)
 {
     var session = manager.GetCurrentSession();
-    var playbackInfo = session.GetPlaybackInfo();
+
+    if (session == null)
+    {
+        if (lastTitle != "")
+        {
+            Console.WriteLine("Nothing playing.");
+            lastTitle = "";
+            playingData["title"] = "";
+            playingData["artist"] = "";
+        }
+        await Task.Delay(1000);
+        continue;
+    }
+
     string appId = session.SourceAppUserModelId;
 
     if (!appId.Contains("Chrome", StringComparison.OrdinalIgnoreCase) &&
@@ -56,36 +86,31 @@ while (true)
     {
         if (lastTitle != "Not Sourced")
         {
-            Console.WriteLine("Not Sourcing from a Browser");
+            Console.WriteLine("Not sourcing from a browser");
             lastTitle = "Not Sourced";
+            playingData["title"] = "";
+            playingData["artist"] = "";
         }
-
+        await Task.Delay(1000);
         continue;
     }
-    
+
+    var playbackInfo = session.GetPlaybackInfo();
+
     if (playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
     {
         var props = await session.TryGetMediaPropertiesAsync();
         var timeline = session.GetTimelineProperties();
-        
-        string title = props.Title;
-        string artist = props.Artist;
-        
 
-        TimeSpan position = timeline.Position;
-        TimeSpan startTime = timeline.StartTime;
-        TimeSpan endTime = timeline.EndTime; 
-        
-        playingData["title"] = title;
-        playingData["artist"] = artist;
-        playingData["position"] = position.ToString();
-        playingData["startTime"] = startTime.ToString();
-        playingData["endTime"] = endTime.ToString();
-        
-        if (title != lastTitle)
+        playingData["title"] = props.Title;
+        playingData["artist"] = props.Artist;
+        playingData["position"] = timeline.Position.TotalSeconds;
+        playingData["duration"] = timeline.EndTime.TotalSeconds;
+
+        if (props.Title != lastTitle)
         {
-            Console.WriteLine($"Now playing: {title} - {artist}");
-            lastTitle = title;
+            Console.WriteLine($"Now playing: {props.Title} - {props.Artist}");
+            lastTitle = props.Title;
         }
     }
     else
@@ -94,6 +119,8 @@ while (true)
         {
             Console.WriteLine("Nothing playing.");
             lastTitle = "";
+            playingData["title"] = "";
+            playingData["artist"] = "";
         }
     }
 
