@@ -21,6 +21,9 @@ listener.Prefixes.Add("http://localhost:8080/");
 listener.Start();
 Console.WriteLine("Listening at http://localhost:8080/");
 
+string lastTitle = "";
+byte[]? currentThumbnail = null;
+
 _ = Task.Run(async () =>
 {
     while (true)
@@ -55,12 +58,23 @@ _ = Task.Run(async () =>
             }
 
         }
+        else if (request.Url.AbsolutePath == "/thumbnail.jpg")
+        {
+            if (currentThumbnail != null)
+            {
+                response.ContentType = "image/jpeg";
+                response.ContentLength64 = currentThumbnail.Length;
+                await response.OutputStream.WriteAsync(currentThumbnail);
+            }
+            else
+            {
+                response.StatusCode = 404;
+            }
+        }
         
         response.Close();
     }
 });
-
-string lastTitle = "";
 
 while (true)
 {
@@ -96,7 +110,7 @@ while (true)
     }
 
     var playbackInfo = session.GetPlaybackInfo();
-
+    
     if (playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
     {
         var props = await session.TryGetMediaPropertiesAsync();
@@ -111,6 +125,20 @@ while (true)
         {
             Console.WriteLine($"Now playing: {props.Title} - {props.Artist}");
             lastTitle = props.Title;
+        }
+        
+        if (props.Thumbnail != null)
+        {
+            using var stream = await props.Thumbnail.OpenReadAsync();
+            var bytes = new byte[stream.Size];
+            using var reader = new Windows.Storage.Streams.DataReader(stream);
+            await reader.LoadAsync((uint)stream.Size);
+            reader.ReadBytes(bytes);
+            currentThumbnail = bytes;
+        }
+        else
+        {
+            currentThumbnail = null;
         }
     }
     else
