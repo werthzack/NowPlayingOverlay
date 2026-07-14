@@ -21,7 +21,6 @@ listener.Prefixes.Add("http://localhost:8080/");
 listener.Start();
 Console.WriteLine("Listening at http://localhost:8080/");
 
-string lastTitle = "";
 byte[]? currentThumbnail = null;
 
 _ = Task.Run(async () =>
@@ -76,81 +75,98 @@ _ = Task.Run(async () =>
     }
 });
 
-while (true)
+GlobalSystemMediaTransportControlsSession? currentSession = null;
+
+void SetSubscription(GlobalSystemMediaTransportControlsSession session, bool subscribe)
 {
-    var session = manager.GetCurrentSession();
-
-    if (session == null)
+    if (subscribe)
     {
-        if (lastTitle != "")
-        {
-            Console.WriteLine("Nothing playing.");
-            lastTitle = "";
-            playingData["title"] = "";
-            playingData["artist"] = "";
-        }
-        await Task.Delay(1000);
-        continue;
-    }
-
-    string appId = session.SourceAppUserModelId;
-
-    if (!appId.Contains("Chrome", StringComparison.OrdinalIgnoreCase) &&
-        !appId.Contains("Edge", StringComparison.OrdinalIgnoreCase))
-    {
-        if (lastTitle != "Not Sourced")
-        {
-            Console.WriteLine("Not sourcing from a browser");
-            lastTitle = "Not Sourced";
-            playingData["title"] = "";
-            playingData["artist"] = "";
-        }
-        await Task.Delay(1000);
-        continue;
-    }
-
-    var playbackInfo = session.GetPlaybackInfo();
-    
-    if (playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-    {
-        var props = await session.TryGetMediaPropertiesAsync();
-        var timeline = session.GetTimelineProperties();
-
-        playingData["title"] = props.Title;
-        playingData["artist"] = props.Artist;
-        playingData["position"] = timeline.Position.TotalSeconds;
-        playingData["duration"] = timeline.EndTime.TotalSeconds;
-
-        if (props.Title != lastTitle)
-        {
-            Console.WriteLine($"Now playing: {props.Title} - {props.Artist}");
-            lastTitle = props.Title;
-        }
-        
-        if (props.Thumbnail != null)
-        {
-            using var stream = await props.Thumbnail.OpenReadAsync();
-            var bytes = new byte[stream.Size];
-            using var reader = new Windows.Storage.Streams.DataReader(stream);
-            await reader.LoadAsync((uint)stream.Size);
-            reader.ReadBytes(bytes);
-            currentThumbnail = bytes;
-        }
-        else
-        {
-            currentThumbnail = null;
-        }
+        session.MediaPropertiesChanged += OnMediaPropertiesChanged;
+        session.PlaybackInfoChanged += OnPlaybackInfoChanged;
+        session.TimelinePropertiesChanged += OnTimelineChanged;
     }
     else
     {
-        if (lastTitle != "")
+        session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+        session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+        session.TimelinePropertiesChanged -= OnTimelineChanged;
+    }
+}
+
+async void AttachToSession(GlobalSystemMediaTransportControlsSession? session)
+{
+    try
+    {
+        if (currentSession != null)
+            SetSubscription(currentSession, subscribe: false);
+
+        currentSession = session;
+
+        if (currentSession != null)
         {
-            Console.WriteLine("Nothing playing.");
-            lastTitle = "";
-            playingData["title"] = "";
-            playingData["artist"] = "";
+            SetSubscription(currentSession, subscribe: true);
+            await UpdateAllData(currentSession);
+        }
+        else
+        {
+            ClearPlayingData();
         }
     }
-
-    await Task.Delay(1000);
+    catch (Exception ex)
+    {
+        Console.WriteLine($"AttachToSession error: {ex.Message}");
+    }
 }
+async void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession session, MediaPropertiesChangedEventArgs args)
+    => await UpdateAllData(session);
+
+async void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession session, PlaybackInfoChangedEventArgs args)
+    => await UpdateAllData(session);
+
+async void OnTimelineChanged(GlobalSystemMediaTransportControlsSession session, TimelinePropertiesChangedEventArgs args)
+    => await UpdateAllData(session);
+
+async Task UpdateAllData(GlobalSystemMediaTransportControlsSession session)
+{
+    var playbackInfo = session.GetPlaybackInfo();
+    if (playbackInfo.PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+    {
+        ClearPlayingData();
+        return;
+    }
+
+    var props = await session.TryGetMediaPropertiesAsync();
+    var timeline = session.GetTimelineProperties();
+
+    playingData["title"] = props.Title;
+    playingData["artist"] = props.Artist;
+    playingData["position"] = timeline.Position.TotalSeconds;
+    Console.WriteLine(timeline.Position.TotalSeconds);
+    playingData["duration"] = timeline.EndTime.TotalSeconds;
+    
+    if (props.Thumbnail != null)
+    {
+        using var stream = await props.Thumbnail.OpenReadAsync();
+        var bytes = new byte[stream.Size];
+        using var reader = new Windows.Storage.Streams.DataReader(stream);
+        await reader.LoadAsync((uint)stream.Size);
+        reader.ReadBytes(bytes);
+        currentThumbnail = bytes;
+    }
+    else
+    {
+        currentThumbnail = null;
+    }
+}
+
+void ClearPlayingData()
+{
+    playingData["title"] = "";
+    playingData["artist"] = "";
+}
+
+manager.CurrentSessionChanged += async (s, e) => AttachToSession(manager.GetCurrentSession());
+AttachToSession(manager.GetCurrentSession());
+
+Console.WriteLine("Press Ctrl+C to exit.");
+await Task.Delay(-1);

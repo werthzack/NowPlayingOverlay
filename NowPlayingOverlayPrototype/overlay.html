@@ -21,7 +21,7 @@
 </head>
 <body>
 <div id="card">
-    <img id="thumb" src="/thumbnail.jpg"  alt=""/>
+    <img id="thumb" src="/thumbnail.jpg" alt=""/>
     <div style="flex:1; min-width:0;">
         <p id="title"></p>
         <p id="artist"></p>
@@ -38,26 +38,65 @@
         const m = Math.floor(sec / 60), s = sec % 60;
         return m + ":" + String(s).padStart(2, "0");
     }
+
+    let basePosition = 0, baseTimestamp = 0, duration = 0, lastTitle = "", lastServerPosition = null;
+    
+    let failCount = 0;
     async function poll() {
         try {
             const res = await fetch('/nowplaying.json');
             const data = await res.json();
             const card = document.getElementById('card');
+
             if (data.title) {
-                document.getElementById('title').textContent = data.title;
-                document.getElementById('artist').textContent = data.artist || "";
-                document.getElementById('elapsed').textContent = fmt(data.position);
-                document.getElementById('remaining').textContent = "-" + fmt(data.duration - data.position);
-                document.getElementById('barFill').style.width = (data.duration > 0 ? (data.position / data.duration * 100) : 0) + "%";
-                document.getElementById('thumb').src = '/thumbnail.jpg?t=' + Date.now();
+                if (data.title !== lastTitle) {
+                    document.getElementById('title').textContent = data.title;
+                    document.getElementById('artist').textContent = data.artist || "";
+                    document.getElementById('thumb').src = '/thumbnail.jpg?t=' + Date.now();
+                    lastTitle = data.title;
+                    lastServerPosition = null; // force resync on track change
+                }
+
+                duration = data.duration;
+
+                // only resync if the server's reported position actually moved
+                if (data.position !== lastServerPosition) {
+                    basePosition = data.position;
+                    baseTimestamp = Date.now();
+                    lastServerPosition = data.position;
+                }
+
                 card.classList.add('visible');
             } else {
                 card.classList.remove('visible');
+                lastTitle = "";
+                duration = 0;
+                lastServerPosition = null;
             }
-        } catch (e) {}
+            failCount = 0;
+        } catch (e) {
+            failCount++;
+            if (failCount > 3){
+                const card = document.getElementById('card');
+                card.classList.remove('visible');
+            }
+        }
+        
         setTimeout(poll, 1000);
     }
+
+    function tick() {
+        if (duration > 0) {
+            const elapsed = Math.min(duration, basePosition + (Date.now() - baseTimestamp) / 1000);
+            document.getElementById('elapsed').textContent = fmt(elapsed);
+            document.getElementById('remaining').textContent = "-" + fmt(duration - elapsed);
+            document.getElementById('barFill').style.width = (elapsed / duration * 100) + "%";
+        }
+        requestAnimationFrame(tick);
+    }
+
     poll();
+    tick();
 </script>
 </body>
 </html>
