@@ -11,7 +11,14 @@
         }
         #card.visible { opacity: 1; }
         #thumb { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #333; flex-shrink: 0; }
-        #title { color: #fff; font-size: 15px; font-weight: bold; margin: 0 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #title {
+            color: #fff; font-size: 15px; font-weight: bold; margin: 0 0 2px;
+            overflow: hidden; white-space: nowrap; position: relative;
+        }
+        #title span {
+            display: inline-block;
+            position: relative;
+        }
         #artist { color: #ccc; font-size: 12px; margin: 0 0 10px; }
         #barRow { display: flex; align-items: center; gap: 8px; }
         #elapsed, #remaining { color: #fff; font-size: 11px; font-weight: bold; min-width: 30px; }
@@ -39,6 +46,46 @@
         return m + ":" + String(s).padStart(2, "0");
     }
 
+    let scrollTimeouts = [];
+
+    function clearScrollLoop() {
+        scrollTimeouts.forEach(t => clearTimeout(t));
+        scrollTimeouts = [];
+    }
+
+    function setTitle(text) {
+        clearScrollLoop();
+        
+        const SCROLL_INTERVAL = 10000;
+        const titleEl = document.getElementById('title');
+        titleEl.innerHTML = '';
+        const span = document.createElement('span');
+        span.textContent = text;
+        span.style.transform = 'translateX(0)';
+        titleEl.appendChild(span);
+
+        requestAnimationFrame(() => {
+            const overflow = span.scrollWidth - titleEl.clientWidth;
+            if (overflow <= 0) return; // fits, no scrolling needed
+
+            function loop() {
+                // hold at start
+                scrollTimeouts.push(setTimeout(() => {
+                    span.style.transition = 'transform 2s linear';
+                    span.style.transform = `translateX(-${overflow}px)`;
+
+                    // hold at end
+                    scrollTimeouts.push(setTimeout(() => {
+                        span.style.transition = 'none';
+                        span.style.transform = 'translateX(0)';
+                        loop(); // repeat
+                    }, 2000 + SCROLL_INTERVAL)); // wait for scroll (2s) + hold at end (10s)
+                }, SCROLL_INTERVAL)); // hold at start
+            }
+            loop();
+        });
+    }
+
     let basePosition = 0, baseTimestamp = 0, duration = 0, lastTitle = "", lastServerPosition = null;
     
     let failCount = 0;
@@ -50,7 +97,7 @@
 
             if (data.title) {
                 if (data.title !== lastTitle) {
-                    document.getElementById('title').textContent = data.title;
+                    setTitle(data.title);
                     document.getElementById('artist').textContent = data.artist || "";
                     document.getElementById('thumb').src = '/thumbnail.jpg?t=' + Date.now();
                     lastTitle = data.title;
